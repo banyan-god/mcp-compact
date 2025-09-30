@@ -13,7 +13,6 @@ venv/
 
 # Config
 config.json
-.env
 
 # IDE
 .vscode/
