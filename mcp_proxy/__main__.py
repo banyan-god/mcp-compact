@@ -19,6 +19,7 @@ import sys
 from contextlib import asynccontextmanager
 
 import uvicorn
+from dotenv import load_dotenv
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
 from .server import create_proxy_server
@@ -33,6 +34,9 @@ logger = logging.getLogger(__name__)
 
 async def main():
     """Main entry point."""
+    # Load .env file if it exists
+    load_dotenv()
+
     parser = argparse.ArgumentParser(description="MCP Proxy Server")
     parser.add_argument("--host", default="localhost", help="Server host")
     parser.add_argument("--port", type=int, default=8009, help="Server port")
