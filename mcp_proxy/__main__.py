@@ -16,7 +16,6 @@ import json
 import logging
 import os
 import sys
-from contextlib import asynccontextmanager
 
 import uvicorn
 from dotenv import load_dotenv
@@ -91,12 +90,6 @@ async def main():
 
     # Run server with uvicorn
     logger.info("MCP Proxy Server running on http://%s:%d", args.host, args.port)
-
-    @asynccontextmanager
-    async def lifespan(app):
-        """Lifespan context for session manager."""
-        async with session_manager.run():
-            yield
 
     async def app(scope, receive, send):
         """ASGI application."""

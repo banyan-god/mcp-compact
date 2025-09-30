@@ -39,7 +39,7 @@ class MCPProxyServer:
         self.llm_client = AsyncOpenAI(
             base_url=llm_base_url,
             api_key=llm_api_key,
-            timeout=30.0,
+            timeout=60.0,
         ) if llm_base_url else None
 
         # MCP server instance
@@ -141,6 +141,11 @@ class MCPProxyServer:
         if len(output_str) // 4 <= max_tokens:
             return output_str
 
+        # Ensure LLM client is available
+        if not self.llm_client:
+            logger.warning("LLM client not configured, returning original output for %s", tool_name)
+            return output_str
+
         logger.info("Summarizing %s output: %d chars", tool_name, len(output_str))
 
         prompt = f"""Summarize this tool output to fit within {max_tokens} tokens.
@@ -155,19 +160,23 @@ Output to summarize:
 
 Provide concise summary:"""
 
-        response = await self.llm_client.chat.completions.create(
-            model=self.llm_model,
-            messages=[
-                {"role": "system", "content": "Summarize tool outputs preserving key information."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.1,
-            max_tokens=max_tokens,
-        )
+        try:
+            response = await self.llm_client.chat.completions.create(
+                model=self.llm_model,
+                messages=[
+                    {"role": "system", "content": "Summarize tool outputs preserving key information."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                max_tokens=max_tokens,
+            )
 
-        summary = response.choices[0].message.content or output_str
-        logger.info("Summarized: %d -> %d chars", len(output_str), len(summary))
-        return summary.strip()
+            summary = response.choices[0].message.content or output_str
+            logger.info("Summarized: %d -> %d chars", len(output_str), len(summary))
+            return summary.strip()
+        except Exception as e:
+            logger.error("Failed to summarize output for %s: %s", tool_name, e, exc_info=True)
+            return output_str
 
     def get_server(self) -> Server:
         """Return the MCP server instance."""

@@ -1,39 +1,27 @@
 {
   "tool_rules": {
-    "browser_snapshot": {
-      "enabled": true,
-      "max_tokens": 8000,
-      "preservation_instruction": "Preserve all clickable elements, form inputs, navigation links, and interactive elements. Include element selectors and descriptions needed for browser automation.",
-      "retry_attempts": 3
-    },
     "browser_navigate": {
       "enabled": true,
-      "max_tokens": 6000,
-      "preservation_instruction": "Preserve page title, main navigation elements, key content sections, and any error messages or status indicators.",
+      "max_tokens": 16000,
+      "preservation_instruction": "Preserve page title, main navigation elements, key content sections, and any error messages or status indicators. Maintain page structure and navigation elements. Keep element IDs and selectors for interaction.",
       "retry_attempts": 3
     },
-    "browser_evaluate": {
+    "browser_navigate_back": {
       "enabled": true,
-      "max_tokens": 4000,
-      "preservation_instruction": "Preserve JavaScript execution results, error messages, and any data structures returned by the evaluation.",
+      "max_tokens": 16000,
+      "preservation_instruction": "Preserve page title, main navigation elements, key content sections, and any error messages or status indicators. Maintain page structure and navigation elements. Keep element IDs and selectors for interaction.",
       "retry_attempts": 3
     },
     "browser_network_requests": {
       "enabled": true,
-      "max_tokens": 6000,
+      "max_tokens": 16000,
       "preservation_instruction": "Preserve request/response status codes, key headers, error messages, and essential response data. Compress verbose JSON responses while keeping structure.",
-      "retry_attempts": 3
-    },
-    "browser_take_screenshot": {
-      "enabled": true,
-      "max_tokens": 4000,
-      "preservation_instruction": "Describe visible interactive elements, their locations, and any text or buttons that could be clicked or interacted with.",
       "retry_attempts": 3
     },
     "browser_click": {
       "enabled": true,
-      "max_tokens": 5000,
-      "preservation_instruction": "Preserve click results, any page changes, error messages, navigation that occurred, and current page state after the click. Include any new elements that appeared or disappeared.",
+      "max_tokens": 16000,
+      "preservation_instruction": "Preserve click results, any page changes, error messages, navigation that occurred, and current page state after the click. Include any new elements that appeared or disappeared. Maintain page structure and navigation elements. Keep element IDs and selectors for interaction.",
       "retry_attempts": 3
     }
   }
