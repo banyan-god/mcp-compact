@@ -1,0 +1,34 @@
+{
+  "tool_rules": {
+    "browser_snapshot": {
+      "enabled": true,
+      "max_tokens": 8000,
+      "preservation_instruction": "Preserve all clickable elements, form fields, and interactive components. Maintain page structure and navigation elements. Keep element IDs and selectors for interaction."
+    },
+    "browser_navigate": {
+      "enabled": true,
+      "max_tokens": 6000,
+      "preservation_instruction": "Keep all links, buttons, and navigation elements. Preserve page title, URL, and main content structure. Include element selectors for clickable items."
+    },
+    "browser_evaluate": {
+      "enabled": true,
+      "max_tokens": 4000,
+      "preservation_instruction": "Preserve evaluation results, data structures, and any error messages. Keep numerical values and computed results intact."
+    },
+    "browser_network_requests": {
+      "enabled": true,
+      "max_tokens": 5000,
+      "preservation_instruction": "Keep request URLs, status codes, response headers, and error details. Summarize response bodies while preserving key data."
+    },
+    "browser_take_screenshot": {
+      "enabled": false,
+      "max_tokens": 2000,
+      "preservation_instruction": "Describe screenshot content and any visible text or UI elements."
+    },
+    "browser_click": {
+      "enabled": true,
+      "max_tokens": 6000,
+      "preservation_instruction": "Preserve the resulting page state after click. Keep all new interactive elements, page changes, and navigation options."
+    }
+  }
+}
