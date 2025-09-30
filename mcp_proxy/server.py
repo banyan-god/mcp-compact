@@ -12,6 +12,7 @@ from typing import Any
 
 from mcp import types
 from mcp.server import Server
+from mcp.shared.context import RequestContext
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from openai import AsyncOpenAI
@@ -67,7 +68,8 @@ class MCPProxyServer:
         @self.server.call_tool()
         async def call_tool(
             name: str,
-            arguments: dict[str, Any]
+            arguments: dict[str, Any],
+            ctx: RequestContext | None = None
         ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
             """Proxy tool calls to upstream with summarization."""
             if not self.upstream_session:
@@ -81,7 +83,9 @@ class MCPProxyServer:
             # Apply summarization if configured
             rule = self.tool_rules.get(name, {})
             if rule.get("enabled", False) and self.llm_client:
-                summarized_content = await self._summarize_output(name, result, rule)
+                summarized_content = await self._summarize_output(
+                    name, result, rule, context=ctx
+                )
                 return [types.TextContent(type="text", text=summarized_content)]
 
             # Return upstream result as-is
@@ -123,9 +127,10 @@ class MCPProxyServer:
         self,
         tool_name: str,
         tool_result: types.CallToolResult,
-        rule: dict[str, Any]
+        rule: dict[str, Any],
+        context: RequestContext | None = None
     ) -> str:
-        """Summarize tool output using LLM."""
+        """Summarize tool output using LLM with streaming support."""
         max_tokens = rule.get("max_tokens", 8000)
         preservation = rule.get("preservation_instruction", "")
 
@@ -148,6 +153,18 @@ class MCPProxyServer:
 
         logger.info("Summarizing %s output: %d chars", tool_name, len(output_str))
 
+        # Send progress notification if context is available
+        if context and context.session:
+            try:
+                await context.session.send_progress_notification(
+                    progress_token=context.request_id,
+                    progress=0.0,
+                    total=1.0,
+                    message=f"Starting summarization of {tool_name} output..."
+                )
+            except Exception as e:
+                logger.debug("Failed to send progress notification: %s", e)
+
         prompt = f"""Summarize this tool output to fit within {max_tokens} tokens.
 
 Tool: {tool_name}
@@ -161,7 +178,8 @@ Output to summarize:
 Provide concise summary:"""
 
         try:
-            response = await self.llm_client.chat.completions.create(
+            # Use streaming API for LLM
+            stream = await self.llm_client.chat.completions.create(
                 model=self.llm_model,
                 messages=[
                     {"role": "system", "content": "Summarize tool outputs preserving key information."},
@@ -169,9 +187,48 @@ Provide concise summary:"""
                 ],
                 temperature=0.1,
                 max_tokens=max_tokens,
+                stream=True,
             )
 
-            summary = response.choices[0].message.content or output_str
+            summary_chunks = []
+            total_chars = 0
+            last_progress_update = 0
+
+            async for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    content = chunk.choices[0].delta.content
+                    summary_chunks.append(content)
+                    total_chars += len(content)
+
+                    # Send progress updates periodically (every 500 chars)
+                    if context and context.session and total_chars - last_progress_update > 500:
+                        try:
+                            # Estimate progress (capped at 90% until complete)
+                            estimated_progress = min(0.9, total_chars / (max_tokens * 4))
+                            await context.session.send_progress_notification(
+                                progress_token=context.request_id,
+                                progress=estimated_progress,
+                                total=1.0,
+                                message=f"Summarizing... ({total_chars} chars generated)"
+                            )
+                            last_progress_update = total_chars
+                        except Exception as e:
+                            logger.debug("Failed to send progress notification: %s", e)
+
+            summary = "".join(summary_chunks) or output_str
+
+            # Send final progress notification
+            if context and context.session:
+                try:
+                    await context.session.send_progress_notification(
+                        progress_token=context.request_id,
+                        progress=1.0,
+                        total=1.0,
+                        message=f"Summarization complete: {len(output_str)} → {len(summary)} chars"
+                    )
+                except Exception as e:
+                    logger.debug("Failed to send progress notification: %s", e)
+
             logger.info("Summarized: %d -> %d chars", len(output_str), len(summary))
             return summary.strip()
         except Exception as e:
