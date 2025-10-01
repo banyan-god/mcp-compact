@@ -141,9 +141,16 @@ class MCPProxyServer:
                 text_parts.append(content_item.text)
 
         output_str = "\n".join(text_parts)
+        estimated_tokens = len(output_str) // 2
 
-        # Check if already small enough (rough: 1 token ≈ 4 chars)
-        if len(output_str) // 4 <= max_tokens:
+        logger.info(
+            "Tool %s output: %d chars (~%d tokens), max_tokens: %d, enabled: %s",
+            tool_name, len(output_str), estimated_tokens, max_tokens, rule.get("enabled", False)
+        )
+
+        # Check if already small enough (rough: 1 token ≈ 2 chars)
+        if estimated_tokens <= max_tokens:
+            logger.info("Output is already within token limit, skipping summarization")
             return output_str
 
         # Ensure LLM client is available
@@ -151,7 +158,7 @@ class MCPProxyServer:
             logger.warning("LLM client not configured, returning original output for %s", tool_name)
             return output_str
 
-        logger.info("Summarizing %s output: %d chars", tool_name, len(output_str))
+        logger.info("Summarizing %s output: %d chars -> target %d tokens", tool_name, len(output_str), max_tokens)
 
         # Send progress notification if context is available
         if context and context.session:
