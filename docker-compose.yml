@@ -1,17 +1,21 @@
-version: '3.8'
-
 services:
   mcp-proxy:
     build: .
     ports:
       - "8009:8009"
+    # On Linux, use host network mode to access host services
+    # Comment out 'network_mode: host' and use 'extra_hosts' on Mac/Windows
+    network_mode: host
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
     environment:
       # Required: Set your upstream MCP server URL
-      - MCP_UPSTREAM_URL=http://host.docker.internal:8931/mcp
+      # Use localhost when network_mode: host
+      - MCP_UPSTREAM_URL=http://localhost:8931/mcp
 
       # Optional: LLM configuration for summarization
       # If not set, proxy runs in pass-through mode
-      - BASE_URL=http://host.docker.internal:8000/v1
+      - BASE_URL=http://localhost:8000/v1
       - MODEL_NAME=openai/gpt-oss-120b
       - API_KEY=EMPTY
 
