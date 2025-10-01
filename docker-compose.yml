@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  mcp-proxy:
+    build: .
+    ports:
+      - "8009:8009"
+    environment:
+      # Required: Set your upstream MCP server URL
+      - MCP_UPSTREAM_URL=http://host.docker.internal:8931/mcp
+
+      # Optional: LLM configuration for summarization
+      # If not set, proxy runs in pass-through mode
+      - BASE_URL=http://host.docker.internal:8000/v1
+      - MODEL_NAME=openai/gpt-oss-120b
+      - API_KEY=EMPTY
+
+      # Proxy configuration
+      - MCP_PROXY_CONFIG_FILE=test_proxy_config.json
+      - HOST=0.0.0.0
+      - PORT=8002
+      - LOG_LEVEL=INFO
+
+    # Mount custom config
+    volumes:
+      - ./test_proxy_config.json:/app/test_proxy_config.json:ro
+
+    restart: unless-stopped
