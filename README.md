@@ -168,7 +168,7 @@ The added latency is offset by reduced context in subsequent agent turns, result
 
 ## License
 
-[To be determined]
+Released under the MIT License. See `LICENSE` for full text.
 
 ## Credits
 
