@@ -5,11 +5,10 @@ Creates an MCP server that proxies to upstream MCP server with output summarizat
 Uses MCP's Server SDK to properly handle the StreamableHTTP protocol.
 """
 
-import asyncio
-import json
 import logging
 from typing import Any
 
+import tiktoken
 from mcp import types
 from mcp.server import Server
 from mcp.shared.context import RequestContext
@@ -42,6 +41,14 @@ class MCPProxyServer:
             api_key=llm_api_key,
             timeout=60.0,
         ) if llm_base_url else None
+
+        # Initialize tiktoken encoder for accurate token counting
+        try:
+            # Use cl100k_base encoding (GPT-4, GPT-3.5-turbo)
+            self.tokenizer = tiktoken.get_encoding("cl100k_base")
+        except Exception as e:
+            logger.warning("Failed to load tiktoken encoder, falling back to char estimation: %s", e)
+            self.tokenizer = None
 
         # MCP server instance
         self.server = Server("mcp-proxy")
@@ -141,14 +148,23 @@ class MCPProxyServer:
                 text_parts.append(content_item.text)
 
         output_str = "\n".join(text_parts)
-        estimated_tokens = len(output_str) // 2
+
+        # Use tiktoken for accurate token counting, fallback to estimation
+        if self.tokenizer:
+            try:
+                estimated_tokens = len(self.tokenizer.encode(output_str))
+            except Exception as e:
+                logger.warning("tiktoken encoding failed, using char estimation: %s", e)
+                estimated_tokens = len(output_str) // 2
+        else:
+            estimated_tokens = len(output_str) // 2
 
         logger.info(
-            "Tool %s output: %d chars (~%d tokens), max_tokens: %d, enabled: %s",
+            "Tool %s output: %d chars (%d tokens), max_tokens: %d, enabled: %s",
             tool_name, len(output_str), estimated_tokens, max_tokens, rule.get("enabled", False)
         )
 
-        # Check if already small enough (rough: 1 token ≈ 2 chars)
+        # Check if already small enough
         if estimated_tokens <= max_tokens:
             logger.info("Output is already within token limit, skipping summarization")
             return output_str
@@ -157,6 +173,23 @@ class MCPProxyServer:
         if not self.llm_client:
             logger.warning("LLM client not configured, returning original output for %s", tool_name)
             return output_str
+
+        # Clip input to 128k tokens to prevent model context overflow
+        max_input_tokens = 128000
+        if estimated_tokens > max_input_tokens:
+            logger.warning(
+                "Input too large (%d tokens), clipping to %d tokens for %s",
+                estimated_tokens, max_input_tokens, tool_name
+            )
+            if self.tokenizer:
+                # Use tiktoken to clip precisely at token boundary
+                tokens = self.tokenizer.encode(output_str)
+                clipped_tokens = tokens[:max_input_tokens]
+                output_str = self.tokenizer.decode(clipped_tokens) + "\n\n[... output truncated due to size ...]"
+            else:
+                # Fallback to char-based clipping
+                max_input_chars = max_input_tokens * 2
+                output_str = output_str[:max_input_chars] + "\n\n[... output truncated due to size ...]"
 
         logger.info("Summarizing %s output: %d chars -> target %d tokens", tool_name, len(output_str), max_tokens)
 
