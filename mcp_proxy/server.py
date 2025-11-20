@@ -5,19 +5,24 @@ Creates an MCP server that proxies to upstream MCP server with output summarizat
 Uses MCP's Server SDK to properly handle the StreamableHTTP protocol.
 """
 
+import asyncio
 import logging
-from typing import Any
+from typing import Any, Awaitable, Callable, TypeVar
 
 import tiktoken
+import httpx
 from mcp import types
 from mcp.server import Server
 from mcp.shared.context import RequestContext
+from mcp.shared.exceptions import McpError
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from openai import AsyncOpenAI
 
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 
 class MCPProxyServer:
@@ -56,6 +61,7 @@ class MCPProxyServer:
         # Upstream connection - will be set up during server lifecycle
         self.upstream_session: ClientSession | None = None
         self.upstream_context = None
+        self._connection_lock = asyncio.Lock()
 
         # Register server handlers
         self._register_handlers()
@@ -66,11 +72,11 @@ class MCPProxyServer:
         @self.server.list_tools()
         async def list_tools() -> list[types.Tool]:
             """List tools from upstream."""
-            if not self.upstream_session:
-                return []
+            async def _list(session: ClientSession) -> list[types.Tool]:
+                result = await session.list_tools()
+                return result.tools
 
-            result = await self.upstream_session.list_tools()
-            return result.tools
+            return await self._execute_with_reconnect("list_tools", _list)
 
         @self.server.call_tool()
         async def call_tool(
@@ -84,8 +90,11 @@ class MCPProxyServer:
 
             logger.info("Proxying tool call: %s", name)
 
+            async def _call_upstream(session: ClientSession) -> types.CallToolResult:
+                return await session.call_tool(name, arguments)
+
             # Call upstream tool
-            result = await self.upstream_session.call_tool(name, arguments)
+            result = await self._execute_with_reconnect(f"call_tool:{name}", _call_upstream)
 
             # Apply summarization if configured
             rule = self.tool_rules.get(name, {})
@@ -124,11 +133,63 @@ class MCPProxyServer:
         """Disconnect from upstream."""
         if self.upstream_session:
             await self.upstream_session.__aexit__(None, None, None)
+            self.upstream_session = None
 
         if self.upstream_context:
             await self.upstream_context.__aexit__(None, None, None)
+            self.upstream_context = None
 
         logger.info("Disconnected from upstream")
+
+    async def _reconnect_upstream(self, reason: str = "session failure", force: bool = False) -> None:
+        """Reconnect to the upstream MCP server, guarding with a lock."""
+        async with self._connection_lock:
+            if self.upstream_session and not force:
+                return
+
+            logger.warning("Reconnecting to upstream (%s)", reason)
+            await self.disconnect_upstream()
+            await self.connect_upstream()
+
+    async def _execute_with_reconnect(
+        self,
+        operation_name: str,
+        operation: Callable[[ClientSession], Awaitable[T]],
+    ) -> T:
+        """Execute an upstream call and reconnect once on session errors."""
+        for attempt in range(2):
+            if not self.upstream_session:
+                await self._reconnect_upstream("session missing")
+                if not self.upstream_session:
+                    continue
+
+            session = self.upstream_session
+            if not session:
+                continue
+
+            try:
+                return await operation(session)
+            except McpError as exc:
+                if not self._should_reconnect(exc) or attempt == 1:
+                    raise
+                logger.info("Upstream session error during %s: %s", operation_name, exc)
+                await self._reconnect_upstream(exc.error.message or operation_name, force=True)
+            except httpx.HTTPError as exc:
+                if attempt == 1:
+                    raise
+                logger.info("HTTP error during %s: %s", operation_name, exc)
+                await self._reconnect_upstream("http error", force=True)
+
+        raise RuntimeError(f"Failed to execute {operation_name} even after reconnect")
+
+    @staticmethod
+    def _should_reconnect(exc: McpError) -> bool:
+        """Return True if the error indicates the upstream session closed."""
+        if exc.error.code == types.CONNECTION_CLOSED:
+            return True
+
+        message = (exc.error.message or "").lower()
+        return "session terminated" in message or "connection closed" in message
 
     async def _summarize_output(
         self,
